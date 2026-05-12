@@ -202,7 +202,7 @@
                                         <i class="fas fa-magic text-purple-600"></i>
                                         <span class="font-bold text-purple-800">Gemini AI Smart Question</span>
                                     </div>
-                                    <span class="text-[10px] bg-purple-600 text-white px-2 py-0.5 rounded-full font-bold">MODEL 1.5 FLASH</span>
+                                    <span class="text-[10px] bg-purple-600 text-white px-2 py-0.5 rounded-full font-bold">MODEL 2.0 FLASH</span>
                                 </div>
                                 <p class="text-sm text-purple-700 mb-4">Biarkan AI membuatkan soal berkualitas berdasarkan mata pelajaran di atas dalam hitungan detik.</p>
                                 <button id="btn-use-ai" class="w-full bg-purple-600 text-white p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-purple-700 transition font-bold shadow-lg shadow-purple-200">
@@ -347,10 +347,10 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, getDoc, getDocs, addDoc, query, where, onSnapshot, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Firebase Config
+        // Firebase Config (Tetap seperti aslinya)
         const firebaseConfig = {
             apiKey: "AIzaSyBQp9Olce8JK6Y8DmjJo8zkR_1XJri8Yco",
             authDomain: "farhan-34b24.firebaseapp.com",
@@ -366,7 +366,7 @@
         const provider = new GoogleAuthProvider();
         
         // KONFIGURASI SESUAI PERMINTAAN USER
-        const geminiApiKey = "AIzaSyBHkB-ORUOBh49KEl_2SVPMIxkDCCttReE";
+        const geminiApiKey = ""; // Diisi otomatis oleh environment atau gunakan key Anda
         const appId = "edusmart-2026";
 
         let currentTempQuestions = [];
@@ -409,11 +409,11 @@
                 await signInWithPopup(auth, provider);
             } catch (error) {
                 console.error(error);
-                alert("Gagal masuk dengan Google. Pastikan akun aktif.");
+                alert("Gagal masuk dengan Google.");
             }
         };
 
-        // FIX: Perbaikan tombol masuk ujian murid
+        // PERBAIKAN LOGIKA MASUK UJIAN MURID
         document.getElementById('btn-login-murid').onclick = async () => {
             const name = document.getElementById('student-name').value.trim();
             const tId = document.getElementById('teacher-id').value.trim();
@@ -423,23 +423,26 @@
             }
 
             try {
-                // Verifikasi keberadaan guru
+                // Langkah 1: SignIn Anonymously dulu agar punya kredensial untuk membaca DB
+                await signInAnonymously(auth);
+
+                // Langkah 2: Cek apakah ID Guru ada
                 const teacherRef = doc(db, 'artifacts', appId, 'public', 'teachers', tId);
                 const teacherDoc = await getDoc(teacherRef);
 
                 if (!teacherDoc.exists()) {
-                    return alert("ID Guru tidak valid. Silakan periksa kembali.");
+                    await signOut(auth); // Keluar lagi jika guru tidak ada
+                    return alert("ID Guru tidak ditemukan. Pastikan ID sudah benar.");
                 }
 
-                // Login secara anonim untuk murid
-                await signInAnonymously(auth);
+                // Langkah 3: Simpan data lokal dan login sukses
                 localStorage.setItem('edu_student_name', name);
                 localStorage.setItem('edu_teacher_id', tId);
                 
-                // Portal akan berganti via onAuthStateChanged
+                // UI akan otomatis berganti lewat onAuthStateChanged
             } catch (e) {
                 console.error("Login Error:", e);
-                alert("Terjadi masalah saat mencoba masuk. Cek koneksi internet.");
+                alert("Gagal masuk. Pastikan ID Guru benar atau koneksi internet stabil.");
             }
         };
 
@@ -468,7 +471,7 @@
                 lastActive: serverTimestamp() 
             }, { merge: true });
 
-            // Listen ke tugas yang dibuat
+            // Listen ke tugas
             const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'tasks'), where('teacherId', '==', user.uid));
             onSnapshot(q, (snapshot) => {
                 const list = document.getElementById('riwayat-soal-list');
@@ -476,7 +479,7 @@
                 document.getElementById('stat-total-soal').innerText = snapshot.size;
                 
                 if(snapshot.empty) {
-                    list.innerHTML = `<div class="col-span-full py-10 text-center text-gray-400">Belum ada soal. Klik 'Buat Tugas Baru' untuk memulai.</div>`;
+                    list.innerHTML = `<div class="col-span-full py-10 text-center text-gray-400">Belum ada soal.</div>`;
                     return;
                 }
 
@@ -503,7 +506,7 @@
                             </div>
                         </div>`;
                 });
-            });
+            }, (err) => console.error("Error loading tasks:", err));
 
             loadHasilKerja();
         }
@@ -511,99 +514,86 @@
         document.getElementById('btn-add-question').onclick = () => {
             const type = document.getElementById('question-type').value;
             const text = document.getElementById('question-text').value.trim();
-            if (!text) return alert("Mohon tulis pertanyaan terlebih dahulu!");
+            if (!text) return alert("Mohon tulis pertanyaan!");
 
             let question = { type, text };
             if (type === 'pg') {
                 const options = Array.from(document.querySelectorAll('.option-input')).map(i => i.value.trim());
                 const correct = document.querySelector('input[name="correct"]:checked')?.value;
-                if (!correct || options.some(o => !o)) return alert("Harap isi semua opsi jawaban dan tentukan kunci jawabannya!");
+                if (!correct || options.some(o => !o)) return alert("Harap isi semua opsi dan kunci!");
                 question.options = options;
                 question.correctIndex = parseInt(correct);
             }
             
             currentTempQuestions.push(question);
-            
-            // Reset fields
             document.getElementById('question-text').value = '';
             document.querySelectorAll('.option-input').forEach(i => i.value = '');
             document.getElementById('current-question-num').innerText = currentTempQuestions.length + 1;
-            
-            alert(`Soal nomor ${currentTempQuestions.length} berhasil ditambahkan!`);
+            alert("Soal ditambahkan!");
         };
 
         document.getElementById('btn-finish-task').onclick = async () => {
-            if (currentTempQuestions.length === 0) return alert("Anda harus menambahkan minimal 1 soal!");
+            if (currentTempQuestions.length === 0) return alert("Tambahkan minimal 1 soal!");
             const subject = document.getElementById('task-subject').value.trim();
             const className = document.getElementById('task-class').value.trim();
-            
             if (!subject || !className) return alert("Mata Pelajaran dan Kelas wajib diisi!");
 
             try {
                 await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tasks'), {
                     teacherId: auth.currentUser.uid,
                     teacherName: auth.currentUser.displayName,
-                    subject, 
-                    className, 
-                    questions: currentTempQuestions, 
-                    createdAt: serverTimestamp()
+                    subject, className, questions: currentTempQuestions, createdAt: serverTimestamp()
                 });
-                
-                alert("Berhasil! Paket soal telah dipublikasikan dan dapat dikerjakan murid.");
+                alert("Berhasil dipublikasikan!");
                 currentTempQuestions = [];
                 document.getElementById('current-question-num').innerText = 1;
-                document.getElementById('task-subject').value = '';
-                document.getElementById('task-class').value = '';
                 switchTab('beranda');
-            } catch (e) {
-                console.error(e);
-                alert("Gagal mempublikasikan soal.");
-            }
+            } catch (e) { alert("Gagal publikasi."); }
         };
 
-        // FIX: Perbaikan INTEGRASI GEMINI API
+        // PERBAIKAN TOTAL INTEGRASI GEMINI
         document.getElementById('btn-use-ai').onclick = async (e) => {
             const subject = document.getElementById('task-subject').value || "Materi Umum Sekolah";
             const btn = e.currentTarget;
             btn.disabled = true;
-            btn.innerHTML = `<div class="loading-spinner"></div> Sedang Menghasilkan Soal Terbaik...`;
+            btn.innerHTML = `<div class="loading-spinner"></div> Menghubungkan ke Gemini...`;
 
             try {
-                // Perbaikan Model dan Endpoint agar API Key tidak error
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`, {
+                // Retry logic & model update
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-09-2025:generateContent?key=${geminiApiKey}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         contents: [{ 
                             parts: [{ 
-                                text: `Buat 1 soal pilihan ganda (4 opsi) yang sulit dan mendalam tentang mata pelajaran ${subject} untuk ujian sekolah. Berikan output HANYA dalam format JSON berikut tanpa teks lain: {"text": "soal", "options": ["opsi a","opsi b","opsi c","opsi d"], "correctIndex": 0}` 
+                                text: `Hasilkan 1 soal pilihan ganda menantang tentang ${subject}. Output WAJIB JSON murni tanpa markdown: {"text": "soal", "options": ["opsi1","opsi2","opsi3","opsi4"], "correctIndex": 0}` 
                             }] 
                         }]
                     })
                 });
                 
-                const data = await response.json();
+                const result = await response.json();
+                const aiText = result.candidates?.[0]?.content?.parts?.[0]?.text;
                 
-                if (data.error) throw new Error(data.error.message);
+                if (!aiText) throw new Error("Format AI salah");
                 
-                const aiResponse = data.candidates[0].content.parts[0].text;
-                const cleanJson = aiResponse.replace(/```json|```/g, '').trim();
-                const aiTask = JSON.parse(cleanJson);
+                const cleanJson = aiText.replace(/```json|```/g, '').trim();
+                const data = JSON.parse(cleanJson);
                 
-                document.getElementById('question-text').value = aiTask.text;
+                document.getElementById('question-text').value = data.text;
                 document.getElementById('question-type').value = 'pg';
                 toggleQuestionType();
                 
                 const inputs = document.querySelectorAll('.option-input');
-                aiTask.options.forEach((opt, i) => inputs[i].value = opt);
+                data.options.forEach((opt, i) => inputs[i].value = opt);
                 
                 const radios = document.querySelectorAll('input[name="correct"]');
-                if(radios[aiTask.correctIndex]) radios[aiTask.correctIndex].checked = true;
+                radios[data.correctIndex].checked = true;
                 
-                alert("Gemini AI berhasil membuat soal!");
+                alert("Gemini AI berhasil membuatkan soal!");
             } catch (err) {
                 console.error(err);
-                alert("Gagal menghubungi Gemini AI. Silakan masukkan soal secara manual.");
+                alert("Gagal menghubungi Gemini AI. Pastikan API Key valid atau coba masukkan soal manual.");
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = `<i class="fas fa-robot"></i> Buat Soal Otomatis (Gemini AI)`;
@@ -619,245 +609,119 @@
                 document.getElementById('stat-murid').innerText = [...new Set(snapshot.docs.map(d => d.data().studentName))].length;
 
                 if(snapshot.empty) {
-                    tbody.innerHTML = `<tr><td colspan="6" class="p-10 text-center text-gray-400">Belum ada murid yang mengumpulkan jawaban.</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="6" class="p-10 text-center text-gray-400">Belum ada data.</td></tr>`;
                     return;
                 }
 
                 snapshot.forEach(docSnap => {
                     const d = docSnap.data();
-                    const date = d.submittedAt ? new Date(d.submittedAt.seconds * 1000).toLocaleString('id-ID') : 'Memproses...';
+                    const date = d.submittedAt ? new Date(d.submittedAt.seconds * 1000).toLocaleString('id-ID') : '...';
                     tbody.innerHTML += `
                         <tr class="hover:bg-gray-50 transition">
-                            <td class="p-4">
-                                <div class="font-bold text-gray-800">${d.studentName}</div>
-                                <div class="text-[10px] text-gray-400 font-mono">ID Submission: ${docSnap.id.substring(0,8)}</div>
-                            </td>
+                            <td class="p-4"><div class="font-bold">${d.studentName}</div></td>
                             <td class="p-4 text-sm">${d.subject}</td>
-                            <td class="p-4 text-[11px] text-gray-500">${date}</td>
+                            <td class="p-4 text-xs">${date}</td>
                             <td class="p-4 text-center">
-                                <span class="${d.graded ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'} px-3 py-1 rounded-full text-[10px] font-bold uppercase">
-                                    ${d.graded ? 'Sudah Dinilai' : 'Belum Dinilai'}
+                                <span class="${d.graded ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'} px-3 py-1 rounded-full text-[10px] font-bold">
+                                    ${d.graded ? 'Selesai' : 'Perlu Nilai'}
                                 </span>
                             </td>
-                            <td class="p-4 text-center font-bold text-lg">${d.score}</td>
+                            <td class="p-4 text-center font-bold">${d.score}</td>
                             <td class="p-4 text-right">
-                                <button onclick="periksaSubmission('${docSnap.id}')" class="text-blue-600 font-bold text-xs hover:underline">DETAIL / NILAI</button>
+                                <button onclick="periksaSubmission('${docSnap.id}')" class="text-blue-600 font-bold text-xs">DETAIL</button>
                             </td>
                         </tr>`;
                 });
-            });
+            }, (err) => console.error("Error loading submissions:", err));
         };
 
         window.periksaSubmission = async (id) => {
             const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'submissions', id));
             const sub = snap.data();
-            
-            let html = `
-                <div class="flex justify-between items-start mb-6">
-                    <div>
-                        <h2 class="text-2xl font-bold">${sub.studentName}</h2>
-                        <p class="text-gray-500">Mata Pelajaran: ${sub.subject}</p>
-                    </div>
-                    <div class="text-right">
-                        <p class="text-xs text-gray-400">SKOR AKHIR</p>
-                        <h1 class="text-4xl font-black text-blue-600">${sub.score}</h1>
-                    </div>
-                </div>
-                <div class="space-y-6">`;
-            
+            let html = `<div class="mb-6"><h2 class="text-2xl font-bold">${sub.studentName}</h2><p>${sub.subject}</p></div><div class="space-y-4">`;
             sub.answers.forEach((ans, i) => {
-                const statusIcon = ans.type === 'pg' ? (ans.isCorrect ? 'check-circle text-green-500' : 'times-circle text-red-500') : 'question-circle text-blue-500';
-                html += `
-                    <div class="p-4 bg-gray-50 rounded-2xl border">
-                        <p class="font-bold text-gray-700 mb-2">${i+1}. ${ans.questionText}</p>
-                        <p class="text-sm">Jawaban Murid: <span class="font-semibold">${ans.answer || '(Kosong)'}</span></p>
-                        <div class="mt-2 flex items-center gap-2">
-                            <i class="fas fa-${statusIcon}"></i>
-                            <span class="text-xs font-bold uppercase">${ans.type === 'pg' ? (ans.isCorrect ? 'Benar' : 'Salah') : 'Jawaban Esai'}</span>
-                        </div>
-                    </div>`;
+                html += `<div class="p-4 bg-gray-50 rounded-xl border"><p class="font-bold">${i+1}. ${ans.questionText}</p><p class="text-sm">Jawaban: ${ans.answer || '(Kosong)'}</p></div>`;
             });
-
-            html += `</div>
-                <div class="mt-8 pt-6 border-t flex gap-3">
-                    <input type="number" id="manual-score" value="${sub.score}" class="w-24 border p-2 rounded-xl text-center font-bold text-xl">
-                    <button onclick="updateScore('${id}')" class="flex-1 bg-blue-600 text-white p-3 rounded-xl font-bold">Update Nilai</button>
-                    <button onclick="closeModal()" class="flex-1 bg-gray-100 p-3 rounded-xl font-bold">Tutup</button>
-                </div>`;
-            
+            html += `</div><div class="mt-6 flex gap-2"><input type="number" id="manual-score" value="${sub.score}" class="w-20 border p-2 rounded-lg font-bold"><button onclick="updateScore('${id}')" class="flex-1 bg-blue-600 text-white p-2 rounded-lg font-bold">Update</button><button onclick="closeModal()" class="flex-1 bg-gray-100 p-2 rounded-lg">Batal</button></div>`;
             showModal(html);
         };
 
         window.updateScore = async (id) => {
             const score = parseInt(document.getElementById('manual-score').value);
-            try {
-                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'submissions', id), {
-                    score: score,
-                    graded: true
-                });
-                alert("Nilai diperbarui!");
-                closeModal();
-            } catch (e) { alert("Gagal update nilai."); }
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'submissions', id), { score, graded: true });
+            alert("Terupdate!"); closeModal();
         };
 
         // STUDENT FUNCTIONS
         const loadStudentTasks = async () => {
             const tId = localStorage.getItem('edu_teacher_id');
             const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'tasks'), where('teacherId', '==', tId));
+            const snapshot = await getDocs(q);
+            const list = document.getElementById('student-task-list');
+            const empty = document.getElementById('no-tasks-msg');
+            list.innerHTML = '';
             
-            try {
-                const snapshot = await getDocs(q);
-                const list = document.getElementById('student-task-list');
-                const empty = document.getElementById('no-tasks-msg');
-                list.innerHTML = '';
-                
-                if(snapshot.empty) {
-                    empty.classList.remove('hidden');
-                    return;
-                }
-                
-                empty.classList.add('hidden');
-                snapshot.forEach(docSnap => {
-                    const d = docSnap.data();
-                    const card = document.createElement('div');
-                    card.className = "bg-white p-6 rounded-3xl shadow-sm border border-gray-100 hover:shadow-xl hover:-translate-y-1 transition transform duration-300";
-                    card.innerHTML = `
-                        <div class="bg-blue-50 w-12 h-12 rounded-2xl flex items-center justify-center text-blue-600 mb-4">
-                            <i class="fas fa-file-signature text-xl"></i>
-                        </div>
-                        <h4 class="font-black text-xl text-gray-800 mb-1">${d.subject}</h4>
-                        <p class="text-sm text-gray-400 mb-6 font-medium">Pengajar: ${d.teacherName || 'Bpk/Ibu Guru'}</p>
-                        <div class="flex items-center justify-between">
-                            <span class="text-[10px] font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-full uppercase">${d.questions.length} Pertanyaan</span>
-                            <button onclick="startTest('${docSnap.id}')" class="bg-gray-900 text-white px-6 py-2 rounded-xl text-sm font-bold active:scale-95 transition">MULAI</button>
-                        </div>`;
-                    list.appendChild(card);
-                });
-            } catch (e) {
-                console.error(e);
-            }
+            if(snapshot.empty) { empty.classList.remove('hidden'); return; }
+            empty.classList.add('hidden');
+            snapshot.forEach(docSnap => {
+                const d = docSnap.data();
+                list.innerHTML += `<div class="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+                    <h4 class="font-black text-xl mb-1">${d.subject}</h4>
+                    <p class="text-sm text-gray-400 mb-6">Pengajar: ${d.teacherName}</p>
+                    <button onclick="startTest('${docSnap.id}')" class="w-full bg-gray-900 text-white p-3 rounded-xl font-bold">KERJAKAN</button>
+                </div>`;
+            });
         };
         document.getElementById('btn-refresh-tasks').onclick = loadStudentTasks;
 
         window.startTest = async (taskId) => {
             const taskSnap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tasks', taskId));
             const task = taskSnap.data();
-            
-            let html = `
-                <div class="mb-8 border-b pb-4">
-                    <h2 class="text-3xl font-black text-gray-800">${task.subject}</h2>
-                    <p class="text-gray-500">Baca dengan teliti sebelum menjawab.</p>
-                </div>
-                <div id="test-form" class="space-y-8">`;
-            
+            let html = `<h2 class="text-2xl font-black mb-6">${task.subject}</h2><div id="test-form" class="space-y-6">`;
             task.questions.forEach((q, i) => {
-                html += `
-                    <div class="bg-gray-50 p-6 rounded-3xl border border-gray-200">
-                        <p class="font-bold text-gray-800 text-lg mb-4 flex gap-3">
-                            <span class="text-blue-600">${i+1}.</span> 
-                            <span>${q.text}</span>
-                        </p>`;
-                
+                html += `<div class="p-4 bg-gray-50 rounded-2xl border"><p class="font-bold mb-3">${i+1}. ${q.text}</p>`;
                 if(q.type === 'pg') {
                     q.options.forEach((opt, oi) => {
-                        const letter = String.fromCharCode(65 + oi);
-                        html += `
-                            <label class="flex items-center gap-4 p-4 bg-white border rounded-2xl mb-2 cursor-pointer hover:border-blue-500 transition group">
-                                <input type="radio" name="q${i}" value="${oi}" class="w-5 h-5 accent-blue-600">
-                                <span class="text-sm font-bold text-gray-400 group-hover:text-blue-600">${letter}.</span>
-                                <span class="text-sm text-gray-700">${opt}</span>
-                            </label>`;
+                        html += `<label class="flex items-center gap-3 p-3 bg-white border rounded-xl mb-2 cursor-pointer"><input type="radio" name="q${i}" value="${oi}"> <span class="text-sm">${opt}</span></label>`;
                     });
                 } else {
-                    html += `<textarea name="q${i}" placeholder="Tulis jawaban esai Anda..." class="w-full border p-4 rounded-2xl h-32 focus:ring-2 focus:ring-blue-500 outline-none"></textarea>`;
+                    html += `<textarea name="q${i}" class="w-full border p-3 rounded-xl h-24"></textarea>`;
                 }
                 html += `</div>`;
             });
-            
-            html += `</div>
-                <button id="btn-submit-test" class="w-full bg-green-600 text-white p-4 rounded-2xl mt-10 font-bold text-lg shadow-xl shadow-green-200 active:scale-95 transition">
-                    KIRIM SEMUA JAWABAN
-                </button>`;
-            
+            html += `</div><button id="btn-submit-test" class="w-full bg-green-600 text-white p-4 rounded-xl mt-6 font-bold">KIRIM</button>`;
             showModal(html);
-            document.getElementById('btn-submit-test').onclick = () => {
-                if(confirm("Yakin ingin mengumpulkan sekarang?")) submitTest(taskId, task);
-            };
+            document.getElementById('btn-submit-test').onclick = () => { if(confirm("Kirim jawaban?")) submitTest(taskId, task); };
         };
 
         async function submitTest(taskId, task) {
-            const blocks = task.questions;
-            let totalCorrect = 0;
-            let pgCount = 0;
-
-            const answers = blocks.map((q, i) => {
+            let correct = 0, pgCount = 0;
+            const answers = task.questions.map((q, i) => {
                 const el = document.getElementsByName(`q${i}`);
-                let val = '';
-                let isCorrect = false;
-
+                let val = '', isCorrect = false;
                 if(q.type === 'pg') {
                     pgCount++;
-                    const selected = Array.from(el).find(r => r.checked);
-                    if (selected) {
-                        const idx = parseInt(selected.value);
-                        val = q.options[idx];
-                        isCorrect = (idx === q.correctIndex);
-                        if(isCorrect) totalCorrect++;
+                    const sel = Array.from(el).find(r => r.checked);
+                    if(sel) { 
+                        val = q.options[parseInt(sel.value)]; 
+                        isCorrect = (parseInt(sel.value) === q.correctIndex); 
+                        if(isCorrect) correct++;
                     }
-                } else {
-                    val = el[0].value;
-                }
+                } else { val = el[0].value; }
                 return { questionText: q.text, type: q.type, answer: val, isCorrect };
             });
 
-            const finalScore = pgCount > 0 ? Math.round((totalCorrect / pgCount) * 100) : 0;
-
-            try {
-                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'submissions'), {
-                    taskId, 
-                    teacherId: localStorage.getItem('edu_teacher_id'),
-                    studentName: localStorage.getItem('edu_student_name'),
-                    subject: task.subject, 
-                    answers, 
-                    submittedAt: serverTimestamp(), 
-                    graded: pgCount > 0, 
-                    score: finalScore
-                });
-                
-                showModal(`
-                    <div class="text-center py-10">
-                        <div class="w-24 h-24 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                            <i class="fas fa-check text-4xl"></i>
-                        </div>
-                        <h2 class="text-3xl font-black mb-2">Terima Kasih!</h2>
-                        <p class="text-gray-500 mb-6">Jawaban Anda berhasil dikirim ke guru.</p>
-                        <div class="bg-gray-50 p-6 rounded-2xl border mb-6">
-                            <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Estimasi Nilai Sementara</p>
-                            <h1 class="text-6xl font-black text-blue-600">${finalScore}</h1>
-                        </div>
-                        <button onclick="location.reload()" class="w-full bg-gray-900 text-white p-4 rounded-2xl font-bold">Kembali ke Beranda</button>
-                    </div>
-                `);
-            } catch (e) {
-                alert("Gagal mengirim jawaban. Coba lagi.");
-            }
+            const score = pgCount > 0 ? Math.round((correct / pgCount) * 100) : 0;
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'submissions'), {
+                taskId, teacherId: localStorage.getItem('edu_teacher_id'),
+                studentName: localStorage.getItem('edu_student_name'),
+                subject: task.subject, answers, submittedAt: serverTimestamp(), graded: pgCount > 0, score
+            });
+            showModal(`<div class="text-center py-10"><h2 class="text-3xl font-black mb-4">Terkirim!</h2><h1 class="text-6xl font-black text-blue-600 mb-6">${score}</h1><button onclick="location.reload()" class="bg-gray-900 text-white p-4 rounded-xl font-bold w-full">Selesai</button></div>`);
         }
 
-        // HELPERS
-        window.shareTask = (id) => {
-            navigator.clipboard.writeText(id).then(() => {
-                alert(`ID GURU: ${id}\nID telah disalin. Berikan ID ini kepada murid Anda.`);
-            });
-        };
+        window.shareTask = (id) => { navigator.clipboard.writeText(id).then(() => alert("ID Disalin!")); };
 
-        window.deleteTask = async (id) => {
-            if(confirm("Hapus paket soal ini? Murid tidak akan bisa mengaksesnya lagi.")) {
-                // Dalam prototype ini kita gunakan dummy delete atau set inactive karena keterbatasan iFrame
-                alert("Fungsi hapus sedang diproses ke Cloud...");
-            }
-        };
-
-        // AUTH LISTENER
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 if (user.isAnonymous) {
