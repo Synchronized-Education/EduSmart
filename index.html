@@ -460,6 +460,8 @@
             
             document.getElementById('user-display-name').innerText = user.displayName;
             document.getElementById('user-display-id').innerText = `ID: ${user.uid}`;
+            // Hubungkan tombol di header ke fungsi salin
+            document.getElementById('btn-copy-id').onclick = () => window.shareTask(user.uid);
             
             // Daftarkan guru ke database publik
             await setDoc(doc(db, 'artifacts', appId, 'public', 'teachers', user.uid), { 
@@ -468,12 +470,17 @@
                 lastActive: serverTimestamp() 
             }, { merge: true });
 
-            // Listen ke tugas yang dibuat
+           // Listen ke tugas yang dibuat secara Real-time
             const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'tasks'), where('teacherId', '==', user.uid));
+            
             onSnapshot(q, (snapshot) => {
                 const list = document.getElementById('riwayat-soal-list');
+                const statTotal = document.getElementById('stat-total-soal');
+                
+                // Update angka statistik di dashboard
+                statTotal.innerText = snapshot.size;
+                
                 list.innerHTML = '';
-                document.getElementById('stat-total-soal').innerText = snapshot.size;
                 
                 if(snapshot.empty) {
                     list.innerHTML = `<div class="col-span-full py-10 text-center text-gray-400">Belum ada soal. Klik 'Buat Tugas Baru' untuk memulai.</div>`;
@@ -485,17 +492,17 @@
                     list.innerHTML += `
                         <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center group hover:border-blue-300 transition">
                             <div class="flex gap-4 items-center">
-                                <div class="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600 font-bold">
-                                    ${d.subject.substring(0,2).toUpperCase()}
+                                <div class="w-12 h-12 blue-gradient rounded-xl flex items-center justify-center text-white font-bold shadow-lg">
+                                    ${(d.subject || "??").substring(0,2).toUpperCase()}
                                 </div>
                                 <div>
                                     <h4 class="font-bold text-gray-800">${d.subject}</h4>
-                                    <p class="text-xs text-gray-400">Kelas: ${d.className} • ${d.questions.length} Soal</p>
+                                    <p class="text-xs text-gray-400">Kelas: ${d.className} • ${d.questions ? d.questions.length : 0} Soal</p>
                                 </div>
                             </div>
                             <div class="flex gap-2 opacity-0 group-hover:opacity-100 transition">
-                                <button onclick="shareTask('${user.uid}')" class="p-2 text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-600 hover:text-white transition">
-                                    <i class="fas fa-share-alt"></i>
+                                <button onclick="window.shareTask('${user.uid}')" class="p-2 text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-600 hover:text-white transition">
+                                    <i class="fas fa-copy"></i>
                                 </button>
                                 <button onclick="deleteTask('${docSnap.id}')" class="p-2 text-red-500 bg-red-50 rounded-lg hover:bg-red-500 hover:text-white transition">
                                     <i class="fas fa-trash"></i>
@@ -503,8 +510,10 @@
                             </div>
                         </div>`;
                 });
+            }, (error) => {
+                console.error("Error pada listener statistik:", error);
             });
-
+            
             loadHasilKerja();
         }
 
@@ -843,10 +852,24 @@
             }
         }
 
-        // HELPERS
+       // HELPERS - Fungsi untuk menyalin ID
         window.shareTask = (id) => {
+            if (!id) {
+                alert("ID tidak ditemukan.");
+                return;
+            }
             navigator.clipboard.writeText(id).then(() => {
-                alert(`ID GURU: ${id}\nID telah disalin. Berikan ID ini kepada murid Anda.`);
+                alert(`ID GURU BERHASIL DISALIN:\n${id}\n\nBerikan ID ini kepada murid Anda agar mereka bisa masuk ke ujian.`);
+            }).catch(err => {
+                console.error('Gagal menyalin: ', err);
+                // Fallback jika navigator.clipboard gagal
+                const textArea = document.createElement("textarea");
+                textArea.value = id;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                alert("ID Guru disalin (fallback mode).");
             });
         };
 
