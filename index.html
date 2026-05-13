@@ -27,13 +27,16 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
         const provider = new GoogleAuthProvider();
-        const geminiApiKey = ""; // API Key Gemini (akan menggunakan environment key jika tersedia)
+        
+        // API KEY GOOGLE AI STUDIO (GEMINI)
+        const geminiApiKey = "AIzaSyBHkB-ORUOBh49KEl_2SVPMIxkDCCttReE"; 
+        const appId = "edu-exam-2026";
 
         // State Management
         let currentUser = null;
-        let userRole = null; // 'teacher' atau 'student'
+        let userRole = null; 
         let teacherIdForStudent = "";
-        let questionsBuffer = []; // Untuk simpan sementara soal saat dibuat guru
+        let questionsBuffer = []; 
 
         // DOM Elements
         const loginScreen = document.getElementById('login-screen');
@@ -45,7 +48,6 @@
         window.loginGuru = async () => {
             try {
                 const result = await signInWithPopup(auth, provider);
-                // User info stored in Firestore under /artifacts/{appId}/users/{userId}
                 console.log("Guru Berhasil Login:", result.user);
             } catch (error) {
                 console.error("Login Error:", error);
@@ -53,16 +55,29 @@
             }
         };
 
-        window.loginMurid = () => {
+        window.loginMurid = async () => {
             const idGuru = document.getElementById('student-teacher-id').value;
             const namaMurid = document.getElementById('student-name').value;
             if (!idGuru || !namaMurid) return alert("Isi Nama dan ID Guru!");
             
-            teacherIdForStudent = idGuru;
-            userRole = 'student';
-            localStorage.setItem('studentName', namaMurid);
-            localStorage.setItem('targetTeacherId', idGuru);
-            showView('student-view');
+            // Daftarkan murid ke Classroom guru tersebut secara otomatis
+            try {
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'classroom'), {
+                    teacherId: idGuru,
+                    studentName: namaMurid,
+                    joinedAt: serverTimestamp()
+                });
+                
+                teacherIdForStudent = idGuru;
+                userRole = 'student';
+                localStorage.setItem('studentName', namaMurid);
+                localStorage.setItem('targetTeacherId', idGuru);
+                document.getElementById('student-display-name').innerText = namaMurid;
+                showView('student-view');
+            } catch (e) {
+                console.error(e);
+                alert("Gagal terhubung ke kelas guru.");
+            }
         };
 
         window.logout = () => {
@@ -82,6 +97,7 @@
                 document.getElementById('teacher-id-copy').innerText = user.uid;
                 loadTeacherSubmissions();
                 loadMyCreatedExams();
+                loadClassroomData();
             } else {
                 loginScreen.classList.remove('hidden');
                 teacherDashboard.classList.add('hidden');
@@ -92,11 +108,44 @@
         window.showView = (viewId) => {
             document.querySelectorAll('.view-section').forEach(v => v.classList.add('hidden'));
             document.getElementById(viewId).classList.remove('hidden');
+            
+            // Handle sidebar active state visually
+            document.querySelectorAll('#teacher-sidebar button').forEach(btn => {
+                btn.classList.remove('bg-blue-50', 'text-blue-700');
+                btn.classList.add('hover:bg-gray-100');
+            });
+            
             if(viewId === 'student-view') {
                 studentDashboard.classList.remove('hidden');
                 loginScreen.classList.add('hidden');
             }
         };
+
+        // --- TEACHER LOGIC: CLASSROOM ---
+        async function loadClassroomData() {
+            if(!currentUser) return;
+            const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'classroom'), where("teacherId", "==", currentUser.uid));
+            onSnapshot(q, (snapshot) => {
+                const list = document.getElementById('classroom-list');
+                list.innerHTML = '';
+                document.getElementById('stat-active-students').innerText = snapshot.size;
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    const div = document.createElement('div');
+                    div.className = "flex items-center gap-3 p-3 bg-gray-50 rounded-xl";
+                    div.innerHTML = `
+                        <div class="w-10 h-10 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold">
+                            ${data.studentName.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                            <p class="font-semibold text-sm">${data.studentName}</p>
+                            <p class="text-xs text-gray-400 text-nowrap">Bergabung: ${data.joinedAt?.toDate().toLocaleDateString() || 'Baru'}</p>
+                        </div>
+                    `;
+                    list.appendChild(div);
+                });
+            }, (error) => console.error("Classroom error:", error));
+        }
 
         // --- TEACHER LOGIC: CREATE EXAM ---
         window.toggleQuestionType = () => {
@@ -145,7 +194,6 @@
             if (!title || !subject || !grade) return alert("Lengkapi data mata pelajaran, judul, dan kelas!");
 
             try {
-                const appId = "edu-exam-2026";
                 const examData = {
                     teacherId: currentUser.uid,
                     teacherName: currentUser.displayName,
@@ -169,50 +217,63 @@
             }
         };
 
-        // --- AI GENERATOR (GEMINI) ---
+        // --- AI GENERATOR (GEMINI 1.5 FLASH) ---
         window.generateWithAI = async () => {
-            const topic = prompt("Masukkan Topik Soal (Contoh: Sistem Tata Surya Kelas 6):");
+            const topic = prompt("Masukkan Topik Soal (Contoh: Sejarah Kemerdekaan Indonesia Kelas 5):");
             if (!topic) return;
 
             const btn = document.getElementById('ai-btn');
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Merancang...';
+            const originalContent = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Merancang Soal dengan AI...';
+            btn.disabled = true;
             
-            const systemPrompt = "Buatlah 5 soal pilihan ganda tentang topik yang diberikan dalam format JSON array of objects. Tiap object punya properti 'type' (selalu 'pg'), 'text', 'options' (array 4 string), dan 'correctIndex' (nomor 0-3).";
+            const systemPrompt = "Buatlah 5 soal pilihan ganda tentang topik yang diberikan dalam format JSON array of objects. Tiap object wajib punya properti 'type' (selalu 'pg'), 'text', 'options' (array 4 string), dan 'correctIndex' (nomor 0-3). Pastikan format JSON valid tanpa markdown tambahan.";
             
             try {
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${geminiApiKey}`, {
+                // Menggunakan endpoint Gemini 1.5 Flash sesuai API Studio Anda
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        contents: [{ parts: [{ text: `Topik: ${topic}` }] }],
-                        systemInstruction: { parts: [{ text: systemPrompt }] },
-                        generationConfig: { responseMimeType: "application/json" }
+                        contents: [{ 
+                            parts: [{ text: `System: ${systemPrompt}\n\nTopik: ${topic}` }] 
+                        }],
+                        generationConfig: { 
+                            responseMimeType: "application/json",
+                            temperature: 0.7
+                        }
                     })
                 });
                 
                 const data = await response.json();
-                const generated = JSON.parse(data.candidates[0].content.parts[0].text);
+                const textResponse = data.candidates[0].content.parts[0].text;
+                const generated = JSON.parse(textResponse);
+                
                 questionsBuffer = [...questionsBuffer, ...generated];
                 document.getElementById('q-count').innerText = questionsBuffer.length;
                 alert("5 Soal AI berhasil ditambahkan ke antrean!");
             } catch (e) {
                 console.error(e);
-                alert("Gagal menghubungi AI. Pastikan koneksi stabil.");
+                alert("Gagal menghubungi AI. Pastikan API Key valid dan koneksi stabil.");
             } finally {
-                btn.innerHTML = '<i class="fas fa-robot"></i> Buat Tugas Otomatis AI';
+                btn.innerHTML = originalContent;
+                btn.disabled = false;
             }
         };
 
         // --- STUDENT LOGIC: LOAD & SUBMIT ---
         window.findExams = async () => {
-            const teacherId = document.getElementById('student-teacher-id').value;
-            const appId = "edu-exam-2026";
+            const teacherId = document.getElementById('student-teacher-id').value || localStorage.getItem('targetTeacherId');
             const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'exams'), where("teacherId", "==", teacherId));
             
             const querySnapshot = await getDocs(q);
             const container = document.getElementById('student-exams-list');
             container.innerHTML = '';
             
+            if (querySnapshot.empty) {
+                container.innerHTML = '<p class="text-center text-gray-400 py-10">Belum ada tugas dari guru ini.</p>';
+            }
+
             querySnapshot.forEach((docSnap) => {
                 const exam = docSnap.data();
                 const div = document.createElement('div');
@@ -230,7 +291,6 @@
 
         let currentActiveExam = null;
         window.startExam = async (examId) => {
-            const appId = "edu-exam-2026";
             const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'exams', examId);
             const snap = await getDoc(docRef);
             if (!snap.exists()) return;
@@ -260,12 +320,11 @@
                 container.appendChild(qDiv);
             });
             
-            container.innerHTML += `<button onclick="submitStudentWork()" class="w-full bg-green-600 text-white py-3 rounded-xl font-bold">Kirim Jawaban</button>`;
+            container.innerHTML += `<button onclick="submitStudentWork()" class="w-full bg-green-600 text-white py-3 rounded-xl font-bold mt-4">Kirim Jawaban</button>`;
             showView('student-exam-room');
         };
 
         window.submitStudentWork = async () => {
-            const appId = "edu-exam-2026";
             const studentName = localStorage.getItem('studentName');
             const answers = currentActiveExam.questions.map((q, i) => {
                 if (q.type === 'pg') {
@@ -287,7 +346,7 @@
                 timestamp: serverTimestamp(),
                 dateStr: new Date().toISOString().split('T')[0],
                 timeStr: new Date().toLocaleTimeString(),
-                status: 'pending', // Menunggu koreksi guru (terutama esai)
+                status: 'pending',
                 score: 0
             };
 
@@ -299,16 +358,17 @@
         // --- TEACHER: MONITOR & EVALUATE ---
         async function loadTeacherSubmissions(filterDate = 'all') {
             if (!currentUser) return;
-            const appId = "edu-exam-2026";
             let q = query(collection(db, 'artifacts', appId, 'public', 'data', 'submissions'), where("teacherId", "==", currentUser.uid));
             
             const querySnapshot = await getDocs(q);
             const tbody = document.getElementById('submissions-table-body');
             tbody.innerHTML = '';
             
+            let pendingCount = 0;
             querySnapshot.forEach((docSnap) => {
                 const sub = docSnap.data();
                 if (filterDate !== 'all' && sub.dateStr !== filterDate) return;
+                if (sub.status === 'pending') pendingCount++;
 
                 const tr = document.createElement('tr');
                 tr.className = "border-b hover:bg-gray-50";
@@ -326,10 +386,10 @@
                 `;
                 tbody.appendChild(tr);
             });
+            document.getElementById('stat-pending').innerText = pendingCount;
         }
 
         window.inspectSubmission = async (subId) => {
-            const appId = "edu-exam-2026";
             const subRef = doc(db, 'artifacts', appId, 'public', 'data', 'submissions', subId);
             const subSnap = await getDoc(subRef);
             const subData = subSnap.data();
@@ -383,13 +443,12 @@
                     }
                 });
 
-                // Kalkulasi Tata Cara Penilaian Merdeka Belajar 2026 (Skala 0-100)
                 let finalScore = 0;
                 if (totalMax > 0) {
                     const pgPart = (autoScore / totalMax) * 100;
                     if (manualCount > 0) {
                         const essayPart = manualTotal / manualCount;
-                        finalScore = Math.round((pgPart * 0.4) + (essayPart * 0.6)); // Contoh bobot: PG 40%, Esai 60%
+                        finalScore = Math.round((pgPart * 0.4) + (essayPart * 0.6));
                     } else {
                         finalScore = Math.round(pgPart);
                     }
@@ -405,24 +464,23 @@
         // --- DOWNLOAD & PRINT LOGIC ---
         async function loadMyCreatedExams() {
             if(!currentUser) return;
-            const appId = "edu-exam-2026";
             const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'exams'), where("teacherId", "==", currentUser.uid));
             const snap = await getDocs(q);
             const container = document.getElementById('my-exams-list');
             container.innerHTML = '';
+            document.getElementById('stat-total-exams').innerText = snap.size;
             snap.forEach(d => {
                 const ex = d.data();
                 container.innerHTML += `
                     <div class="flex items-center justify-between p-2 border-b text-sm">
-                        <span>${ex.subject} - ${ex.title} (Kelas ${ex.grade})</span>
-                        <button onclick="printExam('${d.id}')" class="text-blue-600 hover:underline">Download/Print</button>
+                        <span class="truncate pr-2">${ex.subject} - ${ex.title}</span>
+                        <button onclick="printExam('${d.id}')" class="text-blue-600 hover:underline text-xs flex-shrink-0">Print</button>
                     </div>
                 `;
             });
         }
 
         window.printExam = async (id) => {
-            const appId = "edu-exam-2026";
             const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'exams', id);
             const snap = await getDoc(docRef);
             const data = snap.data();
@@ -450,7 +508,7 @@
             const win = window.open('', '_blank');
             win.document.write(printContent);
             win.document.close();
-            win.print();
+            setTimeout(() => win.print(), 500);
         };
 
         window.applyDateFilter = () => {
@@ -483,11 +541,11 @@
         <div class="max-w-4xl w-full grid md:grid-cols-2 gap-8 bg-white rounded-3xl shadow-2xl overflow-hidden">
             <div class="p-12 flex flex-col justify-center bg-blue-600 text-white">
                 <h1 class="text-4xl font-bold mb-4">EduSmart 2026</h1>
-                <p class="text-blue-100 text-lg mb-8">Platform Ujian Modern berbasis Merdeka Belajar dan Kecerdasan Buatan.</p>
+                <p class="text-blue-100 text-lg mb-8">Platform Ujian Modern berbasis Merdeka Belajar dan Kecerdasan Buatan Gemini Flash.</p>
                 <div class="space-y-4">
                     <div class="flex items-center gap-4">
                         <i class="fas fa-check-circle text-2xl"></i>
-                        <span>Otomasi Soal dengan AI Gemini</span>
+                        <span>Otomasi Soal dengan AI Gemini Studio</span>
                     </div>
                     <div class="flex items-center gap-4">
                         <i class="fas fa-chart-line text-2xl"></i>
@@ -547,9 +605,12 @@
 
         <div class="max-w-7xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-4 gap-6">
             <!-- Sidebar Navigation -->
-            <div class="space-y-2">
+            <div class="space-y-2" id="teacher-sidebar">
                 <button onclick="showView('teacher-main')" class="w-full text-left p-3 rounded-xl bg-blue-50 text-blue-700 font-semibold flex items-center gap-3">
                     <i class="fas fa-home"></i> Beranda
+                </button>
+                <button onclick="showView('classroom-view')" class="w-full text-left p-3 rounded-xl hover:bg-gray-100 flex items-center gap-3">
+                    <i class="fas fa-users"></i> Classroom
                 </button>
                 <button onclick="showView('create-exam-view')" class="w-full text-left p-3 rounded-xl hover:bg-gray-100 flex items-center gap-3">
                     <i class="fas fa-plus-circle"></i> Buat Tugas Baru
@@ -574,15 +635,28 @@
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                         <div class="bg-gradient-to-br from-blue-500 to-indigo-600 p-6 rounded-2xl text-white">
                             <p class="text-blue-100">Total Soal Dibuat</p>
-                            <h3 class="text-3xl font-bold" id="stat-total-exams">...</h3>
+                            <h3 class="text-3xl font-bold" id="stat-total-exams">0</h3>
                         </div>
                         <div class="bg-gradient-to-br from-emerald-500 to-teal-600 p-6 rounded-2xl text-white">
                             <p class="text-emerald-100">Menunggu Diperiksa</p>
-                            <h3 class="text-3xl font-bold" id="stat-pending">...</h3>
+                            <h3 class="text-3xl font-bold" id="stat-pending">0</h3>
                         </div>
                         <div class="bg-gradient-to-br from-orange-500 to-pink-600 p-6 rounded-2xl text-white">
-                            <p class="text-orange-100">Murid Aktif</p>
-                            <h3 class="text-3xl font-bold">12</h3>
+                            <p class="text-orange-100">Murid Terdaftar</p>
+                            <h3 class="text-3xl font-bold" id="stat-active-students">0</h3>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- View: Classroom -->
+                <div id="classroom-view" class="view-section hidden space-y-6">
+                    <div class="bg-white p-6 rounded-2xl shadow-sm border">
+                        <div class="flex justify-between items-center mb-6">
+                            <h2 class="text-xl font-bold">Daftar Murid Classroom</h2>
+                            <span class="text-xs text-gray-400 italic">Murid otomatis muncul saat login dengan ID Anda</span>
+                        </div>
+                        <div id="classroom-list" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <!-- Murid list -->
                         </div>
                     </div>
                 </div>
@@ -592,18 +666,19 @@
                     <div class="bg-white p-6 rounded-2xl shadow-sm border">
                         <h2 class="text-xl font-bold mb-4">Informasi Mata Pelajaran</h2>
                         <div class="grid grid-cols-3 gap-4 mb-4">
-                            <input id="exam-subject" type="text" placeholder="Mata Pelajaran (Contoh: PAI)" class="p-3 border rounded-xl w-full">
-                            <input id="exam-grade" type="text" placeholder="Kelas (Contoh: 6C)" class="p-3 border rounded-xl w-full">
+                            <input id="exam-subject" type="text" placeholder="Mata Pelajaran" class="p-3 border rounded-xl w-full">
+                            <input id="exam-grade" type="text" placeholder="Kelas" class="p-3 border rounded-xl w-full">
                             <input id="exam-title" type="text" placeholder="Judul Tugas" class="p-3 border rounded-xl w-full">
                         </div>
-                        <button id="ai-btn" onclick="generateWithAI()" class="w-full bg-purple-600 text-white py-3 rounded-xl font-bold mb-6 hover:bg-purple-700 shadow-lg">
-                            <i class="fas fa-robot"></i> Buat Tugas Otomatis AI (Gemini)
+                        <button id="ai-btn" onclick="generateWithAI()" class="w-full bg-purple-600 text-white py-4 rounded-xl font-bold mb-6 hover:bg-purple-700 shadow-lg flex items-center justify-center gap-3">
+                            <i class="fas fa-robot"></i> 
+                            <span>Buat Tugas Otomatis AI (Gemini 1.5 Flash)</span>
                         </button>
 
                         <div class="border-t pt-6">
                             <div class="flex justify-between items-center mb-4">
                                 <h3 class="font-bold">Input Soal Manual</h3>
-                                <span class="bg-blue-100 text-blue-600 px-3 py-1 rounded-full text-xs font-bold">Soal dalam antrean: <span id="q-count">0</span></span>
+                                <span class="bg-blue-100 text-blue-600 px-3 py-1 rounded-full text-xs font-bold">Antrean: <span id="q-count">0</span> Soal</span>
                             </div>
                             <div class="space-y-4">
                                 <select id="q-type" onchange="toggleQuestionType()" class="w-full p-3 border rounded-xl">
@@ -633,10 +708,10 @@
 
                                 <div class="flex gap-3">
                                     <button onclick="addQuestionToBuffer()" class="flex-1 bg-gray-100 py-3 rounded-xl font-bold hover:bg-gray-200">
-                                        Simpan & Tambah Soal Lagi
+                                        Tambah ke Antrean
                                     </button>
                                     <button onclick="saveExamToFirebase()" class="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700">
-                                        Selesaikan & Publikasikan
+                                        Publikasikan Sekarang
                                     </button>
                                 </div>
                             </div>
@@ -663,9 +738,9 @@
                                         <th class="p-3">Nama Murid</th>
                                         <th class="p-3">Judul Soal</th>
                                         <th class="p-3 text-center">Jml Soal</th>
-                                        <th class="p-3">Waktu Pengerjaan</th>
+                                        <th class="p-3">Waktu</th>
                                         <th class="p-3 text-center">Nilai</th>
-                                        <th class="p-3">Aksi</th>
+                                        <th class="p-3 text-right">Aksi</th>
                                     </tr>
                                 </thead>
                                 <tbody id="submissions-table-body">
@@ -691,11 +766,11 @@
             <!-- Student Main View -->
             <div id="student-view" class="view-section">
                 <div class="bg-blue-600 p-8 rounded-3xl text-white mb-8 shadow-xl">
-                    <h2 class="text-2xl font-bold">Halo, <span id="student-display-name">Murid</span>!</h2>
-                    <p class="opacity-80">Masukkan ID Guru untuk mulai melihat tugas yang tersedia.</p>
+                    <h2 class="text-2xl font-bold text-wrap">Halo, <span id="student-display-name">Murid</span>!</h2>
+                    <p class="opacity-80">Anda telah terhubung ke Classroom guru.</p>
                     <div class="mt-6 flex gap-2">
                         <button onclick="findExams()" class="bg-white text-blue-600 px-6 py-3 rounded-xl font-bold shadow-md hover:bg-blue-50 transition-all">
-                            Refresh Daftar Tugas
+                            <i class="fas fa-sync-alt mr-2"></i> Refresh Daftar Tugas
                         </button>
                     </div>
                 </div>
@@ -715,16 +790,14 @@
         </div>
     </div>
 
-    <!-- GRADING MODAL (Hidden by default) -->
+    <!-- GRADING MODAL -->
     <div id="grading-modal" class="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-6 hidden">
         <div class="bg-white w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
             <div class="p-6 border-b flex justify-between items-center">
                 <h2 class="text-xl font-bold">Evaluasi & Penilaian</h2>
                 <button onclick="document.getElementById('grading-modal').classList.add('hidden')" class="text-gray-400"><i class="fas fa-times"></i></button>
             </div>
-            <div class="p-6 overflow-y-auto flex-1" id="grading-content">
-                <!-- Grading details -->
-            </div>
+            <div class="p-6 overflow-y-auto flex-1" id="grading-content"></div>
             <div class="p-6 bg-gray-50 border-t">
                 <button onclick="saveGrading()" class="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700">
                     Simpan Nilai Sesuai Kurikulum Merdeka 2026
@@ -734,11 +807,12 @@
     </div>
 
     <script>
-        // Copy teacher ID function
         document.getElementById('teacher-id-copy')?.addEventListener('click', function() {
             const id = this.innerText;
             navigator.clipboard.writeText(id).then(() => {
-                alert("ID Guru berhasil disalin: " + id);
+                const original = id;
+                this.innerText = "Tersalin!";
+                setTimeout(() => this.innerText = original, 1000);
             });
         });
     </script>
