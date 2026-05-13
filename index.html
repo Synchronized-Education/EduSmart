@@ -473,13 +473,17 @@
            // Listen ke tugas yang dibuat
             const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'tasks'), where('teacherId', '==', user.uid));
             
+            // Baris 615: Awal blok onSnapshot
             onSnapshot(q, (snapshot) => {
                 const list = document.getElementById('riwayat-soal-list');
-                const statTotal = document.getElementById('stat-total-soal'); // Ambil elemen angka
+                const statTotal = document.getElementById('stat-total-soal'); 
                 
-                // UPDATE ANGKA DI KOTAK BIRU
+                // 1. PASANG DI SINI UNTUK CEK DI CONSOLE F12
+                console.log("Data ditemukan:", snapshot.size); 
+                
+                // 2. PASANG DI SINI UNTUK UPDATE ANGKA DI KOTAK BIRU
                 if (statTotal) {
-                    statTotal.innerText = snapshot.size; // Mengubah 0 menjadi jumlah data di Firebase
+                    statTotal.innerText = snapshot.size; 
                 }
                 
                 list.innerHTML = '';
@@ -509,7 +513,7 @@
                             </div>
                         </div>`;
                 });
-            });
+            }); // Baris 640: Akhir blok onSnapshot
             
             loadHasilKerja();
         }
@@ -886,9 +890,10 @@
                     document.getElementById('display-student-name').innerText = localStorage.getItem('edu_student_name');
                     loadStudentTasks();
                 } else {
-                    document.getElementById('auth-screen').classList.add('hidden');
-                    document.getElementById('teacher-portal').classList.remove('hidden');
-                    loadTeacherDashboard();
+    document.getElementById('auth-screen').classList.add('hidden');
+    document.getElementById('teacher-portal').classList.remove('hidden');
+    loadTeacherDashboard(); // Fungsi dipanggil di sini
+}
                 }
             } else {
                 document.getElementById('auth-screen').classList.remove('hidden');
