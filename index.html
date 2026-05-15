@@ -1503,20 +1503,26 @@
             </div>
 
             <!-- Hasil Screen -->
-            <div id="um-hasil" class="hidden flex-col items-center justify-center p-8 text-center">
-                <div id="um-lingkaran-wrap" class="mb-6">
-                    <svg width="160" height="160" viewBox="0 0 160 160">
-                        <circle cx="80" cy="80" r="70" fill="none" stroke="#e5e7eb" stroke-width="12"/>
-                        <circle id="um-circle-prog" cx="80" cy="80" r="70" fill="none" stroke="#16a34a" stroke-width="12"
-                            stroke-dasharray="440" stroke-dashoffset="440"
-                            stroke-linecap="round" transform="rotate(-90 80 80)"
-                            style="transition: stroke-dashoffset 2s ease"/>
-                        <text id="um-score-text" x="80" y="88" text-anchor="middle" font-size="32" font-weight="bold" fill="#111"></text>
-                    </svg>
+            <div id="um-hasil" class="hidden flex-col p-6">
+                <!-- Baris atas: lingkaran kiri + teks kanan -->
+                <div class="flex items-center gap-6 mb-6">
+                    <div id="um-lingkaran-wrap" class="flex-shrink-0">
+                        <svg width="140" height="140" viewBox="0 0 160 160">
+                            <circle cx="80" cy="80" r="70" fill="none" stroke="#e5e7eb" stroke-width="12"/>
+                            <circle id="um-circle-prog" cx="80" cy="80" r="70" fill="none" stroke="#16a34a" stroke-width="12"
+                                stroke-dasharray="440" stroke-dashoffset="440"
+                                stroke-linecap="round" transform="rotate(-90 80 80)"
+                                style="transition: stroke-dashoffset 2s ease"/>
+                            <text id="um-score-text" x="80" y="88" text-anchor="middle" font-size="32" font-weight="bold" fill="#111"></text>
+                        </svg>
+                    </div>
+                    <div class="flex-1 text-left">
+                        <h2 id="um-predikat" class="text-xl font-bold mb-3"></h2>
+                        <p id="um-quote" class="text-gray-500 italic text-sm leading-relaxed"></p>
+                        <p id="um-quote-loading" class="text-gray-400 text-xs italic mt-1 hidden">✨ Mengambil kata motivasi...</p>
+                    </div>
                 </div>
-                <h2 id="um-predikat" class="text-2xl font-bold mb-2"></h2>
-                <p id="um-quote" class="text-gray-500 italic text-sm mb-6 max-w-sm"></p>
-                <button onclick="resetUjianMandiri()" class="bg-green-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-green-700">
+                <button onclick="resetUjianMandiri()" class="w-full bg-green-600 text-white py-3 rounded-xl font-bold hover:bg-green-700">
                     Coba Lagi
                 </button>
             </div>
@@ -1641,6 +1647,61 @@
             });
         }
 
+        window.printSoalMandiri = function() {
+            if (!umSoalBuffer || umSoalBuffer.length === 0) {
+                alert('Belum ada soal untuk diprint!');
+                return;
+            }
+            const nama = document.getElementById('um-nama')?.value || '-';
+            const kelas = document.getElementById('um-kelas')?.value || '-';
+            const topik = document.getElementById('um-topik')?.value || '-';
+            const tingkat = document.getElementById('um-tingkat')?.value || '-';
+
+            let printContent = `<html><head><title>Lembar Soal Ujian Mandiri</title><style>
+                @media print { @page { margin: 2cm; } }
+                body { font-family: Arial, sans-serif; padding: 40px; color: #000; }
+                h1 { text-align: center; font-size: 20px; margin-bottom: 6px; text-transform: uppercase; }
+                h2 { text-align: center; font-size: 14px; font-weight: normal; margin-bottom: 20px; color: #333; }
+                .info-table { width: 100%; margin-bottom: 16px; border-collapse: collapse; }
+                .info-table td { padding: 4px 8px; font-size: 14px; }
+                .info-table td:first-child { width: 160px; font-weight: bold; }
+                .dotted { border-bottom: 1px dotted #000; display: inline-block; min-width: 200px; }
+                hr { border: 1px solid #000; margin: 16px 0; }
+                .soal { margin-bottom: 22px; }
+                .soal p { margin: 4px 0; font-size: 14px; }
+                .jawaban-kosong { border: 1px solid #999; height: 80px; width: 100%; margin-top: 6px; }
+                ul { list-style: none; padding-left: 20px; margin: 6px 0; }
+                ul li { margin: 4px 0; font-size: 14px; }
+            </style></head><body>
+                <h1>Lembar Soal Ujian Mandiri AI</h1>
+                <h2>EduSmart 2026</h2>
+                <table class="info-table">
+                    <tr><td>Nama</td><td>: ${nama !== '-' ? nama : '<span class="dotted"></span>'}</td></tr>
+                    <tr><td>Kelas / Semester</td><td>: ${kelas !== '-' ? kelas : '<span class="dotted"></span>'}</td></tr>
+                    <tr><td>Tingkatan</td><td>: ${tingkat}</td></tr>
+                    <tr><td>Topik / Mapel</td><td>: ${topik}</td></tr>
+                    <tr><td>Tanggal</td><td>: <span class="dotted"></span></td></tr>
+                </table>
+                <hr>
+                ${umSoalBuffer.map((q, i) => `
+                    <div class="soal">
+                        <p><b>${i+1}. ${q.text}</b></p>
+                        ${q.type === 'pg' ? `<ul>
+                            <li>A. ${q.options[0]}</li>
+                            <li>B. ${q.options[1]}</li>
+                            <li>C. ${q.options[2]}</li>
+                            <li>D. ${q.options[3]}</li>
+                        </ul>` : '<div class="jawaban-kosong"></div>'}
+                    </div>
+                `).join('')}
+            </body></html>`;
+
+            const win = window.open('', '_blank');
+            win.document.write(printContent);
+            win.document.close();
+            win.print();
+        };
+
         function mulaiKerjakan() {
             umJawaban = new Array(umSoalBuffer.length).fill(null);
             umCurrentIdx = 0;
@@ -1759,8 +1820,40 @@
                 predikat.style.color = '#ca8a04';
             }
 
-            const quote = getRandomQuote(umConfig.tingkat);
-            document.getElementById('um-quote').innerHTML = `"${quote.q}"<br><b class="text-gray-700">— ${quote.by}</b>`;
+            // Ambil quote dari Gemini AI berdasarkan topik soal
+            fetchMotivationalQuote(umConfig.topik, umConfig.tingkat, skor);
+        }
+
+        async function fetchMotivationalQuote(topik, tingkat, skor) {
+            const quoteEl = document.getElementById('um-quote');
+            const loadingEl = document.getElementById('um-quote-loading');
+            quoteEl.innerHTML = '';
+            loadingEl.classList.remove('hidden');
+
+            const konteks = skor >= 75 ? 'siswa yang baru saja berhasil mendapat nilai bagus' :
+                            skor >= 50 ? 'siswa yang nilainya cukup dan perlu semangat lebih' :
+                            'siswa yang nilainya kurang dan perlu motivasi untuk bangkit';
+
+            const prompt = 'Berikan 1 kutipan motivasi yang relevan dengan topik "' + topik + '" untuk ' + konteks + ' tingkat ' + tingkat + '. Kutipan bisa dari tokoh terkenal, ilmuwan, ulama, pahlawan, atau bijak dunia yang sesuai konteks topik. Format jawaban HANYA JSON: {"q":"isi kutipan dalam bahasa Indonesia","by":"nama tokoh"}. Jangan tambahkan apapun selain JSON.';
+
+            try {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${window.__geminiKeyUM}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                });
+                const data = await res.json();
+                if (data.error) throw new Error(data.error.message);
+                let text = data.candidates[0].content.parts[0].text;
+                text = text.replace(/```json|```/g, '').trim();
+                const parsed = JSON.parse(text);
+                loadingEl.classList.add('hidden');
+                quoteEl.innerHTML = `<span class="text-gray-600">&ldquo;${parsed.q}&rdquo;</span><br><b class="text-gray-700 text-xs not-italic">— ${parsed.by}</b>`;
+            } catch(e) {
+                loadingEl.classList.add('hidden');
+                const fallback = getRandomQuote(tingkat);
+                quoteEl.innerHTML = `<span class="text-gray-600">&ldquo;${fallback.q}&rdquo;</span><br><b class="text-gray-700 text-xs not-italic">— ${fallback.by}</b>`;
+            }
         }
 
         function resetUjianMandiri() {
